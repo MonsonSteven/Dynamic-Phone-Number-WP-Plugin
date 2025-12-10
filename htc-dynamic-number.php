@@ -2,8 +2,7 @@
 /**
  * Plugin Name: HTC Dynamic Number (Lite)
  * Description: Dynamic phone number swapping with an admin settings page. Shortcode: [htc_phone]
- * Version: 1.1.0
- * Update: Added datalayer click tracking
+ * Version: 1.2.0
  * Author: Steven Monson - Hometown Contractors - Internal Use Only
  */
 
@@ -269,12 +268,19 @@ function htc_dn_enqueue_frontend(): void {
     document.cookie = name + "=" + encodeURIComponent(value) + ";" + expires + ";Path=/;SameSite=Lax" + secure;
   };
 
-  const wildcardMatch = (pattern, value) => {
-    const p = (pattern ?? '*').toString().trim();
-    const v = (value ?? '').toString();
-    const re = new RegExp('^' + p.replace(/[.+?^${}()|[\\]\\\\]/g, '\\$&').replace(/\\*/g, '.*') + '$', 'i');
-    return re.test(v);
-  };
+const wildcardMatch = (pattern, value) => {
+  const p = (pattern ?? '*').toString().trim();
+  const v = (value ?? '').toString();
+
+  // Escape regex special chars EXCEPT '*'
+  const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+
+  // Convert '*' to '.*'
+  const re = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$', 'i');
+  return re.test(v);
+};
+
+
 
   const refHost = () => {
     try {
@@ -317,33 +323,6 @@ function htc_dn_enqueue_frontend(): void {
       if (node.tagName.toLowerCase() === 'a' && num.tel) node.setAttribute('href', 'tel:' + num.tel);
     });
   };
-
-   const wireClickTracking = () => {
-    document.addEventListener('click', (e) => {
-      const a = e.target && e.target.closest ? e.target.closest('a[data-htc-dn-phone]') : null;
-      if (!a) return;
-
-      const rid = getCookie(CFG.cookieName);
-      const chosen = rid ? RULES.find(r => r.id === rid) : null;
-
-      const payload = {
-        event: 'htc_phone_click',
-        htc_phone_display: (a.textContent || '').trim(),
-        htc_phone_tel: (a.getAttribute('href') || '').replace(/^tel:/i, ''),
-        htc_rule_id: rid || '',
-        htc_rule_type: chosen?.type || '',
-        htc_rule_param: chosen?.param || '',
-        htc_rule_pattern: chosen?.pattern || '',
-        page_location: window.location.href,
-        page_path: window.location.pathname,
-      };
-
-      window.dataLayer = window.dataLayer || [];
-      window.dataLayer.push(payload);
-    }, { capture: true });
-  };
-
-    wireClickTracking();
 
   const boot = () => {
     const match = resolveRule();
