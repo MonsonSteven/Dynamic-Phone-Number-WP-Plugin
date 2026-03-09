@@ -2,28 +2,29 @@
 /**
  * Plugin Name: HTC Dynamic Number (Lite)
  * Description: Dynamic phone number swapping with an admin settings page. Shortcode: [htc_phone]
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Steven Monson - Hometown Contractors - Internal Use Only
  */
 
 defined('ABSPATH') || exit;
 
-const HTC_DN_OPT = 'htc_dn_options_lite';
-const HTC_DN_COOKIE = 'htc_dn_rule_id';
+define('HTC_DN_OPT', 'htc_dn_options_lite');
+define('HTC_DN_COOKIE', 'htc_dn_rule_id');
 
 function htc_dn_defaults(): array {
   return [
-    'default_display' => '(850) 555-0000',
-    'default_tel'     => '+18505550000',
+    'default_display' => '(850) 203-5529',
+    'default_tel'     => '+18502035529',
     'cookie_days'     => 30,
-    // Rules are stored as JSON in admin. See example on settings page.
     'rules_json'      => '[]',
   ];
 }
 
 function htc_dn_get_options(): array {
   $opt = get_option(HTC_DN_OPT);
-  if (!is_array($opt)) $opt = [];
+  if (!is_array($opt)) {
+    $opt = [];
+  }
   return wp_parse_args($opt, htc_dn_defaults());
 }
 
@@ -31,7 +32,7 @@ function htc_dn_get_options(): array {
  * Admin: Menu + Settings
  * --------------------------- */
 add_action('admin_menu', 'htc_dn_admin_menu');
-add_action('network_admin_menu', 'htc_dn_admin_menu'); // multisite visibility
+add_action('network_admin_menu', 'htc_dn_admin_menu');
 add_action('admin_init', 'htc_dn_admin_init');
 
 function htc_dn_admin_menu(): void {
@@ -88,7 +89,6 @@ function htc_dn_sanitize_options($raw): array {
   $rules_json = $raw['rules_json'] ?? $out['rules_json'];
   $rules_json = is_string($rules_json) ? $rules_json : '[]';
 
-  // Validate JSON (must decode into an array)
   $decoded = json_decode($rules_json, true);
   if (!is_array($decoded)) {
     add_settings_error(HTC_DN_OPT, 'htc_dn_rules_json', 'Rules JSON is invalid. Please fix the JSON and save again.', 'error');
@@ -101,7 +101,9 @@ function htc_dn_sanitize_options($raw): array {
 }
 
 function htc_dn_render_settings_page(): void {
-  if (!current_user_can('manage_options')) return;
+  if (!current_user_can('manage_options')) {
+    return;
+  }
   ?>
   <div class="wrap">
     <h1>Dynamic Numbers</h1>
@@ -200,10 +202,11 @@ add_shortcode('htc_phone', 'htc_dn_shortcode_phone');
 
 function htc_dn_shortcode_phone($atts): string {
   $opt = htc_dn_get_options();
+
   $atts = shortcode_atts([
     'label' => 'Call Hometown Contractors',
     'class' => 'htc-phone-link',
-  ], (array)$atts, 'htc_phone');
+  ], (array) $atts, 'htc_phone');
 
   $display = $opt['default_display'];
   $tel     = $opt['default_tel'];
@@ -223,36 +226,56 @@ function htc_dn_shortcode_phone($atts): string {
 add_action('wp_enqueue_scripts', 'htc_dn_enqueue_frontend');
 
 function htc_dn_enqueue_frontend(): void {
+  if (is_admin()) {
+    return;
+  }
+
   $opt = htc_dn_get_options();
   $rules = json_decode($opt['rules_json'], true);
-  if (!is_array($rules)) $rules = [];
 
-  // Keep enabled rules only + sort by priority
-  $rules = array_values(array_filter($rules, function($r){
+  if (!is_array($rules)) {
+    $rules = [];
+  }
+
+  $rules = array_values(array_filter($rules, function ($r) {
     return is_array($r) && !empty($r['enabled']);
   }));
-  usort($rules, function($a, $b){
+
+  usort($rules, function ($a, $b) {
     return intval($a['priority'] ?? 9999) <=> intval($b['priority'] ?? 9999);
   });
 
   $payload = [
     'cookieName' => HTC_DN_COOKIE,
     'cookieDays' => intval($opt['cookie_days']),
-    'default'    => ['display' => $opt['default_display'], 'tel' => $opt['default_tel']],
+    'default'    => [
+      'display' => $opt['default_display'],
+      'tel'     => $opt['default_tel'],
+    ],
     'rules'      => $rules,
   ];
 
-  wp_register_script('htc-dn-lite', '', [], '1.0.0', true);
+  wp_register_script(
+    'htc-dn-lite',
+    false,
+    [],
+    '1.2.1',
+    true
+  );
+
   wp_enqueue_script('htc-dn-lite');
 
-  $js = 'window.HTC_DN_LITE=' . wp_json_encode($payload) . ";\n" . <<<'JS'
+  $js = 'window.HTC_DN_LITE=' . wp_json_encode($payload) . ';' . "\n" . <<<'JS'
 (() => {
   const CFG = window.HTC_DN_LITE || {};
   const RULES = Array.isArray(CFG.rules) ? CFG.rules : [];
 
   const getParam = (name) => {
-    try { return new URL(window.location.href).searchParams.get(name); }
-    catch(e) { return null; }
+    try {
+      return new URL(window.location.href).searchParams.get(name);
+    } catch (e) {
+      return null;
+    }
   };
 
   const getCookie = (name) => {
@@ -262,31 +285,29 @@ function htc_dn_enqueue_frontend(): void {
 
   const setCookie = (name, value, days) => {
     const d = new Date();
-    d.setTime(d.getTime() + (days*24*60*60*1000));
-    const expires = "expires=" + d.toUTCString();
+    d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+    const expires = 'expires=' + d.toUTCString();
     const secure = window.location.protocol === 'https:' ? ';Secure' : '';
-    document.cookie = name + "=" + encodeURIComponent(value) + ";" + expires + ";Path=/;SameSite=Lax" + secure;
+    document.cookie = name + '=' + encodeURIComponent(value) + ';' + expires + ';Path=/;SameSite=Lax' + secure;
   };
 
-const wildcardMatch = (pattern, value) => {
-  const p = (pattern ?? '*').toString().trim();
-  const v = (value ?? '').toString();
+  const wildcardMatch = (pattern, value) => {
+    const p = (pattern ?? '*').toString().trim();
+    const v = (value ?? '').toString();
 
-  // Escape regex special chars EXCEPT '*'
-  const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$', 'i');
 
-  // Convert '*' to '.*'
-  const re = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$', 'i');
-  return re.test(v);
-};
-
-
+    return re.test(v);
+  };
 
   const refHost = () => {
     try {
       if (!document.referrer) return '';
       return new URL(document.referrer).host || '';
-    } catch(e) { return ''; }
+    } catch (e) {
+      return '';
+    }
   };
 
   const resolveRule = () => {
@@ -294,6 +315,7 @@ const wildcardMatch = (pattern, value) => {
 
     for (const r of RULES) {
       if (!r || !r.id) continue;
+
       const type = (r.type || 'PARAM').toUpperCase();
 
       if (type === 'CLICKID') {
@@ -307,36 +329,51 @@ const wildcardMatch = (pattern, value) => {
       }
 
       if (type === 'REFERRER') {
-        const target = (r.param || '').toString().trim(); // e.g. "facebook.com"
+        const target = (r.param || '').toString().trim();
         if (!host) continue;
         if (target && !host.toLowerCase().includes(target.toLowerCase())) continue;
         if (wildcardMatch(r.pattern || '*', host)) return r;
       }
     }
+
     return null;
   };
 
   const applyNumber = (num) => {
     const nodes = document.querySelectorAll('[data-htc-dn-phone]');
-    nodes.forEach(node => {
-      if (num.display) node.textContent = num.display;
-      if (node.tagName.toLowerCase() === 'a' && num.tel) node.setAttribute('href', 'tel:' + num.tel);
+
+    nodes.forEach((node) => {
+      if (num.display) {
+        node.textContent = num.display;
+      }
+
+      if (node.tagName.toLowerCase() === 'a' && num.tel) {
+        node.setAttribute('href', 'tel:' + num.tel);
+      }
     });
   };
 
   const boot = () => {
     const match = resolveRule();
-    if (match && match.id) setCookie(CFG.cookieName, match.id, CFG.cookieDays || 30);
+
+    if (match && match.id) {
+      setCookie(CFG.cookieName, match.id, CFG.cookieDays || 30);
+    }
 
     const rid = getCookie(CFG.cookieName);
-    const chosen = rid ? RULES.find(r => r.id === rid) : null;
+    const chosen = rid ? RULES.find((r) => r.id === rid) : null;
+    const num = chosen
+      ? { display: chosen.display, tel: chosen.tel }
+      : (CFG.default || {});
 
-    const num = chosen ? { display: chosen.display, tel: chosen.tel } : (CFG.default || {});
     applyNumber(num);
   };
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
 })();
 JS;
 
