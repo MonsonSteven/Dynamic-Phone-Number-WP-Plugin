@@ -2,7 +2,7 @@
 /**
  * Plugin Name: HTC Dynamic Number (Lite)
  * Description: Dynamic phone number swapping with an admin settings page. Shortcode: [htc_phone]
- * Version: 1.2.1
+ * Version: 1.3.0
  * Author: Steven Monson - Hometown Contractors - Internal Use Only
  */
 
@@ -10,6 +10,8 @@ defined('ABSPATH') || exit;
 
 define('HTC_DN_OPT', 'htc_dn_options_lite');
 define('HTC_DN_COOKIE', 'htc_dn_rule_id');
+define('HTC_DN_PATH', plugin_dir_path(__FILE__));
+define('HTC_DN_URL', plugin_dir_url(__FILE__));
 
 function htc_dn_defaults(): array {
   return [
@@ -34,6 +36,7 @@ function htc_dn_get_options(): array {
 add_action('admin_menu', 'htc_dn_admin_menu');
 add_action('network_admin_menu', 'htc_dn_admin_menu');
 add_action('admin_init', 'htc_dn_admin_init');
+add_action('admin_bar_menu', 'htc_dn_admin_bar_menu', 999);
 
 function htc_dn_admin_menu(): void {
   $cap = 'manage_options';
@@ -100,9 +103,47 @@ function htc_dn_sanitize_options($raw): array {
   return $out;
 }
 
+/**
+ * Get debug info visible in wp-admin only
+ */
+function htc_dn_get_debug_info(): array {
+  $opt = htc_dn_get_options();
+  $rules = json_decode($opt['rules_json'], true);
+  $rules = is_array($rules) ? $rules : [];
+
+  $cookie_value = isset($_COOKIE[HTC_DN_COOKIE]) ? sanitize_text_field($_COOKIE[HTC_DN_COOKIE]) : null;
+  $matched_rule = null;
+
+  if ($cookie_value) {
+    foreach ($rules as $rule) {
+      if (is_array($rule) && ($rule['id'] ?? null) === $cookie_value) {
+        $matched_rule = $rule;
+        break;
+      }
+    }
+  }
+
+  return [
+    'cookie_name'     => HTC_DN_COOKIE,
+    'cookie_value'    => $cookie_value,
+    'matched_rule_id' => $matched_rule['id'] ?? null,
+    'display_number'  => $matched_rule['display'] ?? $opt['default_display'],
+    'tel_number'      => $matched_rule['tel'] ?? $opt['default_tel'],
+    'is_default'      => $matched_rule === null,
+  ];
+}
+
 function htc_dn_render_settings_page(): void {
   if (!current_user_can('manage_options')) {
     return;
+  }
+
+  $debug = htc_dn_get_debug_info();
+
+  // Handle cookie purge
+  if (isset($_POST['htc_dn_purge_cookies']) && check_admin_referer('htc_dn_purge_nonce')) {
+    setcookie(HTC_DN_COOKIE, '', time() - 3600, '/', '', false, true);
+    echo '<div class="notice notice-success is-dismissible"><p>✓ Cookie purged successfully.</p></div>';
   }
   ?>
   <div class="wrap">
@@ -112,12 +153,86 @@ function htc_dn_render_settings_page(): void {
       Patterns support <code>*</code> wildcards.
     </p>
 
+    <!-- DEBUG PANEL -->
+    <div style="background:#f5f5f5; border-left:4px solid #0073aa; padding:15px; margin:15px 0; border-radius:4px;">
+      <h3 style="margin-top:0; color:#0073aa;">🔍 Debug Panel</h3>
+      <table style="width:100%; border-collapse:collapse;">
+        <tr style="border-bottom:1px solid #ddd;">
+          <td style="padding:8px; font-weight:bold; width:200px;">Cookie Name:</td>
+          <td style="padding:8px;"><code><?php echo esc_html($debug['cookie_name']); ?></code></td>
+        </tr>
+        <tr style="border-bottom:1px solid #ddd; background:#fff;">
+          <td style="padding:8px; font-weight:bold;">Cookie Value:</td>
+          <td style="padding:8px;">
+            <?php if ($debug['cookie_value']): ?>
+              <code style="background:#fffbdd; padding:4px 8px; border-radius:3px;">
+                <?php echo esc_html($debug['cookie_value']); ?>
+              </code>
+            <?php else: ?>
+              <em style="color:#999;">No cookie set</em>
+            <?php endif; ?>
+          </td>
+        </tr>
+        <tr style="border-bottom:1px solid #ddd;">
+          <td style="padding:8px; font-weight:bold;">Matched Rule ID:</td>
+          <td style="padding:8px;">
+            <?php if ($debug['matched_rule_id']): ?>
+              <code style="background:#d4edda; padding:4px 8px; border-radius:3px; color:#155724;">
+                <?php echo esc_html($debug['matched_rule_id']); ?>
+              </code>
+            <?php else: ?>
+              <em style="color:#999;">None (using default)</em>
+            <?php endif; ?>
+          </td>
+        </tr>
+        <tr style="border-bottom:1px solid #ddd; background:#fff;">
+          <td style="padding:8px; font-weight:bold;">Current Display:</td>
+          <td style="padding:8px;">
+            <code style="background:#e3f2fd; padding:4px 8px; border-radius:3px;">
+              <?php echo esc_html($debug['display_number']); ?>
+            </code>
+            <?php if ($debug['is_default']): ?>
+              <span style="color:#999; font-size:0.9em; margin-left:8px;">(default)</span>
+            <?php endif; ?>
+          </td>
+        </tr>
+        <tr style="background:#fff;">
+          <td style="padding:8px; font-weight:bold;">Current Tel:</td>
+          <td style="padding:8px;">
+            <code style="background:#e3f2fd; padding:4px 8px; border-radius:3px;">
+              <?php echo esc_html($debug['tel_number']); ?>
+            </code>
+            <?php if ($debug['is_default']): ?>
+              <span style="color:#999; font-size:0.9em; margin-left:8px;">(default)</span>
+            <?php endif; ?>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:12px 0 0 0; font-size:0.9em; color:#666;">
+        💡 This panel shows what your current admin session sees. Visitor sessions may differ based on their traffic source.
+      </p>
+    </div>
+
     <form method="post" action="options.php">
       <?php
         settings_fields('htc_dn_group');
         do_settings_sections('htc-dynamic-number');
         submit_button('Save Settings');
       ?>
+    </form>
+
+    <hr />
+    
+    <h2>Admin Tools</h2>
+    <form method="post" style="margin-bottom: 20px;">
+      <?php wp_nonce_field('htc_dn_purge_nonce'); ?>
+      <input type="hidden" name="htc_dn_purge_cookies" value="1" />
+      <button type="submit" class="button button-secondary" onclick="return confirm('This will clear the tracking cookie. Continue?');">
+        🔄 Clear Admin Session Cookie
+      </button>
+      <p style="font-size:0.9em; color:#666; margin:8px 0 0 0;">
+        Clears your admin session's cookie. Visitor cookies are unaffected.
+      </p>
     </form>
 
     <hr />
@@ -158,6 +273,33 @@ function htc_dn_render_settings_page(): void {
   </div>
   <?php
 }
+
+/**
+ * Admin bar menu for quick cookie purge
+ */
+function htc_dn_admin_bar_menu($admin_bar): void {
+  if (!current_user_can('manage_options')) {
+    return;
+  }
+
+  $admin_bar->add_menu([
+    'id'     => 'htc-dn-purge',
+    'parent' => 'top-secondary',
+    'title'  => '🔄 Clear HTC Cookies',
+    'href'   => add_query_arg([
+      'htc_dn_purge' => wp_create_nonce('htc_dn_purge_admin_bar'),
+    ], admin_url('admin.php?page=htc-dynamic-number')),
+  ]);
+}
+
+// Handle admin bar purge action
+add_action('admin_init', function () {
+  if (isset($_GET['htc_dn_purge']) && current_user_can('manage_options')) {
+    if (wp_verify_nonce($_GET['htc_dn_purge'], 'htc_dn_purge_admin_bar')) {
+      setcookie(HTC_DN_COOKIE, '', time() - 3600, '/', '', false, true);
+    }
+  }
+});
 
 function htc_dn_field_default_display(): void {
   $opt = htc_dn_get_options();
@@ -255,127 +397,13 @@ function htc_dn_enqueue_frontend(): void {
     'rules'      => $rules,
   ];
 
-  wp_register_script(
+  wp_enqueue_script(
     'htc-dn-lite',
-    false,
+    HTC_DN_URL . 'assets/js/htc-dn-frontend.js',
     [],
-    '1.2.1',
+    '1.3.0',
     true
   );
 
-  wp_enqueue_script('htc-dn-lite');
-
-  $js = 'window.HTC_DN_LITE=' . wp_json_encode($payload) . ';' . "\n" . <<<'JS'
-(() => {
-  const CFG = window.HTC_DN_LITE || {};
-  const RULES = Array.isArray(CFG.rules) ? CFG.rules : [];
-
-  const getParam = (name) => {
-    try {
-      return new URL(window.location.href).searchParams.get(name);
-    } catch (e) {
-      return null;
-    }
-  };
-
-  const getCookie = (name) => {
-    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
-    return m ? decodeURIComponent(m.pop()) : null;
-  };
-
-  const setCookie = (name, value, days) => {
-    const d = new Date();
-    d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
-    const expires = 'expires=' + d.toUTCString();
-    const secure = window.location.protocol === 'https:' ? ';Secure' : '';
-    document.cookie = name + '=' + encodeURIComponent(value) + ';' + expires + ';Path=/;SameSite=Lax' + secure;
-  };
-
-  const wildcardMatch = (pattern, value) => {
-    const p = (pattern ?? '*').toString().trim();
-    const v = (value ?? '').toString();
-
-    const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$', 'i');
-
-    return re.test(v);
-  };
-
-  const refHost = () => {
-    try {
-      if (!document.referrer) return '';
-      return new URL(document.referrer).host || '';
-    } catch (e) {
-      return '';
-    }
-  };
-
-  const resolveRule = () => {
-    const host = refHost();
-
-    for (const r of RULES) {
-      if (!r || !r.id) continue;
-
-      const type = (r.type || 'PARAM').toUpperCase();
-
-      if (type === 'CLICKID') {
-        const v = getParam(r.param);
-        if (v) return r;
-      }
-
-      if (type === 'PARAM') {
-        const v = getParam(r.param);
-        if (v && wildcardMatch(r.pattern, v)) return r;
-      }
-
-      if (type === 'REFERRER') {
-        const target = (r.param || '').toString().trim();
-        if (!host) continue;
-        if (target && !host.toLowerCase().includes(target.toLowerCase())) continue;
-        if (wildcardMatch(r.pattern || '*', host)) return r;
-      }
-    }
-
-    return null;
-  };
-
-  const applyNumber = (num) => {
-    const nodes = document.querySelectorAll('[data-htc-dn-phone]');
-
-    nodes.forEach((node) => {
-      if (num.display) {
-        node.textContent = num.display;
-      }
-
-      if (node.tagName.toLowerCase() === 'a' && num.tel) {
-        node.setAttribute('href', 'tel:' + num.tel);
-      }
-    });
-  };
-
-  const boot = () => {
-    const match = resolveRule();
-
-    if (match && match.id) {
-      setCookie(CFG.cookieName, match.id, CFG.cookieDays || 30);
-    }
-
-    const rid = getCookie(CFG.cookieName);
-    const chosen = rid ? RULES.find((r) => r.id === rid) : null;
-    const num = chosen
-      ? { display: chosen.display, tel: chosen.tel }
-      : (CFG.default || {});
-
-    applyNumber(num);
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-  }
-})();
-JS;
-
-  wp_add_inline_script('htc-dn-lite', $js, 'after');
+  wp_localize_script('htc-dn-lite', 'HTC_DN_LITE', $payload);
 }
