@@ -1,0 +1,159 @@
+/**
+ * HTC Dynamic Number Frontend Logic
+ * Version: 1.4.3
+ */
+(() => {
+  const CFG = window.HTC_DN_LITE || {};
+  const RULES = Array.isArray(CFG.rules) ? CFG.rules : [];
+  const TYPE_PARAM_MAP = {
+    UTM_SOURCE: 'utm_source',
+    UTM_MEDIUM: 'utm_medium',
+    UTM_CAMPAIGN: 'utm_campaign',
+    UTM_TERM: 'utm_term',
+    UTM_CONTENT: 'utm_content',
+    CAMPAIGNID: 'campaignid',
+    KEYWORD: 'keyword',
+    ADPOSITION: 'adpos',
+    ADPOS: 'adpos',
+    PROMO: 'promo',
+    REGION: 'region',
+    GCLID: 'gclid',
+    FBCLID: 'fbclid',
+    MSCLKID: 'msclkid',
+    TTCLID: 'ttclid',
+    GBRAID: 'gbraid',
+    WBRAID: 'wbraid'
+  };
+  const CLICK_ID_TYPES = new Set(['CLICKID', 'GCLID', 'FBCLID', 'MSCLKID', 'TTCLID', 'GBRAID', 'WBRAID']);
+
+  const getParam = (name) => {
+    try {
+      return new URL(window.location.href).searchParams.get(name);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const getCookie = (name) => {
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? decodeURIComponent(m.pop()) : null;
+  };
+
+  const setCookie = (name, value, days) => {
+    const d = new Date();
+    d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+    const expires = 'expires=' + d.toUTCString();
+    const secure = window.location.protocol === 'https:' ? ';Secure' : '';
+    document.cookie = name + '=' + encodeURIComponent(value) + ';' + expires + ';Path=/;SameSite=Lax' + secure;
+  };
+
+  const wildcardMatch = (pattern, value) => {
+    const p = (pattern ?? '*').toString().trim();
+    const v = (value ?? '').toString();
+
+    const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$', 'i');
+
+    return re.test(v);
+  };
+
+  const refHost = () => {
+    try {
+      if (!document.referrer) return '';
+      return new URL(document.referrer).host || '';
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const resolveParamName = (rule, type) => {
+    const namedType = TYPE_PARAM_MAP[type];
+    if (namedType) return namedType;
+
+    const explicit = (rule.param || '').toString().trim();
+    return explicit || null;
+  };
+
+  const resolveRule = () => {
+    const host = refHost();
+
+    for (const r of RULES) {
+      if (!r || !r.id) continue;
+
+      const type = (r.type || 'PARAM').toUpperCase();
+      const paramName = resolveParamName(r, type);
+
+      if (CLICK_ID_TYPES.has(type)) {
+        if (!paramName) continue;
+        const v = getParam(paramName);
+        if (v) return r;
+      }
+
+      if (type === 'PARAM' || TYPE_PARAM_MAP[type]) {
+        if (!paramName) continue;
+        const v = getParam(paramName);
+        if (v && wildcardMatch(r.pattern, v)) return r;
+      }
+
+      if (type === 'REFERRER') {
+        const target = (r.param || '').toString().trim();
+        if (!host) continue;
+        if (target && !host.toLowerCase().includes(target.toLowerCase())) continue;
+        if (wildcardMatch(r.pattern || '*', host)) return r;
+      }
+    }
+
+    return null;
+  };
+
+  const applyNumber = (num) => {
+    const nodes = document.querySelectorAll('[data-htc-dn-phone]');
+
+    nodes.forEach((node) => {
+      if (num.display) {
+        node.textContent = num.display;
+      }
+
+      if (node.tagName.toLowerCase() === 'a' && num.tel) {
+        node.setAttribute('href', 'tel:' + num.tel);
+      }
+    });
+  };
+
+  const getChosenNumber = () => {
+    const match = resolveRule();
+
+    if (match && match.id) {
+      setCookie(CFG.cookieName, match.id, CFG.cookieDays || 30);
+      return { display: match.display, tel: match.tel };
+    }
+
+    const rid = getCookie(CFG.cookieName);
+    const chosen = rid ? RULES.find((r) => r.id === rid) : null;
+
+    if (chosen) {
+      return { display: chosen.display, tel: chosen.tel };
+    }
+
+    return CFG.default || {};
+  };
+
+  const boot = () => {
+    applyNumber(getChosenNumber());
+  };
+
+  const scheduleRechecks = () => {
+    [150, 500, 1500].forEach((delay) => {
+      window.setTimeout(boot, delay);
+    });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
+  window.addEventListener('load', boot);
+  scheduleRechecks();
+})();
