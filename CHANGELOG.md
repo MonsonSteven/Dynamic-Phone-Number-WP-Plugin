@@ -2,6 +2,23 @@
 
 All notable changes to `HTC Dynamic Number (Lite)` will be documented in this file.
 
+## [1.4.4] - 2026-04-23
+
+Added Fluent Forms attribution persistence support so hidden form fields can retain first-touch campaign data even when a visitor submits the form on a later page.
+
+New
+-Added first-touch persistence for utm_promo, utm_region, gclid, fbclid, msclkid, ttclid, gbraid, and wbraid
+-Added automatic population of matching Fluent Forms hidden fields on the frontend
+-Added a server-side Fluent Forms fallback so persisted values are still inserted during submission when matching fields exist
+
+Result
+Visitors can land on a tagged URL, navigate deeper into the site, and still submit a Fluent Form with the original attribution data preserved
+This aligns Fluent Forms submission tracking with the plugin’s existing DNI-style cookie persistence behavior
+
+Notes
+Hidden field names should match the supported parameter names exactly, such as utm_promo, utm_region, gclid, fbclid, msclkid, and ttclid
+Attribution values are stored as first-touch values for the cookie duration already configured in the plugin
+
 ## [1.4.3] - 2026-03-12
 
 ### Fixed
