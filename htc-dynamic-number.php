@@ -2,7 +2,7 @@
 /**
  * Plugin Name: HTC Dynamic Number (Lite)
  * Description: Dynamic phone number swapping with an admin settings page. Shortcode: [htc_phone]
- * Version: 1.4.3
+ * Version: 1.4.4
  * Author: Steven Monson - Hometown Contractors - Internal Use Only
  */
 
@@ -10,6 +10,7 @@ defined('ABSPATH') || exit;
 
 define('HTC_DN_OPT', 'htc_dn_options_lite');
 define('HTC_DN_COOKIE', 'htc_dn_rule_id');
+define('HTC_DN_ATTR_COOKIE_PREFIX', 'htc_dn_attr_');
 define('HTC_DN_PATH', plugin_dir_path(__FILE__));
 define('HTC_DN_URL', plugin_dir_url(__FILE__));
 define('HTC_DN_RULES_FILE', HTC_DN_PATH . 'generated-rules-from-csv.json');
@@ -45,6 +46,124 @@ function htc_dn_rule_type_param_map(): array {
     'GBRAID'       => 'gbraid',
     'WBRAID'       => 'wbraid',
   ];
+}
+
+function htc_dn_tracking_param_sources(): array {
+  return [
+    'utm_promo'  => ['utm_promo', 'promo'],
+    'utm_region' => ['utm_region', 'region'],
+    'gclid'      => ['gclid'],
+    'fbclid'     => ['fbclid'],
+    'msclkid'    => ['msclkid'],
+    'ttclid'     => ['ttclid'],
+    'gbraid'     => ['gbraid'],
+    'wbraid'     => ['wbraid'],
+  ];
+}
+
+function htc_dn_tracking_field_targets(): array {
+  return [
+    'utm_promo'  => ['utm_promo', 'promo'],
+    'utm_region' => ['utm_region', 'region'],
+    'gclid'      => ['gclid'],
+    'fbclid'     => ['fbclid'],
+    'msclkid'    => ['msclkid'],
+    'ttclid'     => ['ttclid'],
+    'gbraid'     => ['gbraid'],
+    'wbraid'     => ['wbraid'],
+  ];
+}
+
+function htc_dn_tracking_cookie_name(string $key): string {
+  return HTC_DN_ATTR_COOKIE_PREFIX . sanitize_key($key);
+}
+
+function htc_dn_tracking_cookie_map(): array {
+  $cookies = [];
+
+  foreach (array_keys(htc_dn_tracking_param_sources()) as $key) {
+    $cookies[$key] = htc_dn_tracking_cookie_name($key);
+  }
+
+  return $cookies;
+}
+
+function htc_dn_read_request_value(array $source_names): ?string {
+  foreach ($source_names as $name) {
+    $key = (string) $name;
+
+    if (isset($_COOKIE[$key])) {
+      $value = sanitize_text_field(wp_unslash($_COOKIE[$key]));
+      if ($value !== '') {
+        return $value;
+      }
+    }
+
+    if (isset($_GET[$key])) {
+      $value = sanitize_text_field(wp_unslash($_GET[$key]));
+      if ($value !== '') {
+        return $value;
+      }
+    }
+  }
+
+  return null;
+}
+
+function htc_dn_get_tracking_request_values(): array {
+  $values = [];
+
+  foreach (htc_dn_tracking_param_sources() as $key => $sources) {
+    $cookie_name = htc_dn_tracking_cookie_name($key);
+    $cookie_value = isset($_COOKIE[$cookie_name]) ? sanitize_text_field(wp_unslash($_COOKIE[$cookie_name])) : '';
+
+    if ($cookie_value !== '') {
+      $values[$key] = $cookie_value;
+      continue;
+    }
+
+    $request_value = htc_dn_read_request_value($sources);
+    if ($request_value !== null) {
+      $values[$key] = $request_value;
+    }
+  }
+
+  return $values;
+}
+
+function htc_dn_collect_ff_input_names($node, array &$names): void {
+  if (is_array($node)) {
+    if (isset($node['attributes']['name']) && is_string($node['attributes']['name'])) {
+      $name = sanitize_key($node['attributes']['name']);
+      if ($name !== '') {
+        $names[$name] = true;
+      }
+    }
+
+    if (isset($node['name']) && is_string($node['name'])) {
+      $name = sanitize_key($node['name']);
+      if ($name !== '') {
+        $names[$name] = true;
+      }
+    }
+
+    foreach ($node as $value) {
+      htc_dn_collect_ff_input_names($value, $names);
+    }
+
+    return;
+  }
+
+  if (is_object($node)) {
+    htc_dn_collect_ff_input_names(get_object_vars($node), $names);
+  }
+}
+
+function htc_dn_extract_ff_input_names($input_configs): array {
+  $names = [];
+  htc_dn_collect_ff_input_names($input_configs, $names);
+
+  return array_keys($names);
 }
 
 function htc_dn_normalize_rule(array $rule): array {
@@ -972,6 +1091,7 @@ function htc_dn_shortcode_phone($atts): string {
  * Frontend swapping JS
  * --------------------------- */
 add_action('wp_enqueue_scripts', 'htc_dn_enqueue_frontend');
+add_filter('fluentform/insert_response_data', 'htc_dn_fluentform_insert_response_data', 10, 3);
 
 function htc_dn_enqueue_frontend(): void {
   if (is_admin()) {
@@ -1000,6 +1120,11 @@ function htc_dn_enqueue_frontend(): void {
       'display' => $opt['default_display'],
       'tel'     => $opt['default_tel'],
     ],
+    'tracking'   => [
+      'sources' => htc_dn_tracking_param_sources(),
+      'targets' => htc_dn_tracking_field_targets(),
+      'cookies' => htc_dn_tracking_cookie_map(),
+    ],
     'rules'      => $rules,
   ];
 
@@ -1007,9 +1132,43 @@ function htc_dn_enqueue_frontend(): void {
     'htc-dn-lite',
     HTC_DN_URL . 'assets/js/htc-dn-frontend.js',
     [],
-    '1.4.3',
+    '1.4.4',
     true
   );
 
   wp_localize_script('htc-dn-lite', 'HTC_DN_LITE', $payload);
+}
+
+function htc_dn_fluentform_insert_response_data($form_data, $form_id, $input_configs): array {
+  if (!is_array($form_data)) {
+    $form_data = [];
+  }
+
+  $tracking_values = htc_dn_get_tracking_request_values();
+  if (!$tracking_values) {
+    return $form_data;
+  }
+
+  $available_names = array_fill_keys(htc_dn_extract_ff_input_names($input_configs), true);
+
+  foreach (htc_dn_tracking_field_targets() as $key => $targets) {
+    $value = $tracking_values[$key] ?? '';
+    if ($value === '') {
+      continue;
+    }
+
+    foreach ($targets as $target) {
+      $target_name = sanitize_key($target);
+      if ($target_name === '' || !isset($available_names[$target_name])) {
+        continue;
+      }
+
+      $existing = $form_data[$target_name] ?? '';
+      if ($existing === '' || $existing === null) {
+        $form_data[$target_name] = $value;
+      }
+    }
+  }
+
+  return $form_data;
 }
