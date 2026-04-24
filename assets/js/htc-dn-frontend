@@ -1,10 +1,14 @@
 /**
  * HTC Dynamic Number Frontend Logic
- * Version: 1.4.3
+ * Version: 1.4.4
  */
 (() => {
   const CFG = window.HTC_DN_LITE || {};
   const RULES = Array.isArray(CFG.rules) ? CFG.rules : [];
+  const TRACKING = CFG.tracking || {};
+  const TRACKING_SOURCES = TRACKING.sources || {};
+  const TRACKING_TARGETS = TRACKING.targets || {};
+  const TRACKING_COOKIES = TRACKING.cookies || {};
   const TYPE_PARAM_MAP = {
     UTM_SOURCE: 'utm_source',
     UTM_MEDIUM: 'utm_medium',
@@ -34,6 +38,17 @@
     }
   };
 
+  const getFirstParamValue = (names) => {
+    for (const name of Array.isArray(names) ? names : []) {
+      const value = getParam(name);
+      if (value) {
+        return value;
+      }
+    }
+
+    return null;
+  };
+
   const getCookie = (name) => {
     const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
     return m ? decodeURIComponent(m.pop()) : null;
@@ -45,6 +60,14 @@
     const expires = 'expires=' + d.toUTCString();
     const secure = window.location.protocol === 'https:' ? ';Secure' : '';
     document.cookie = name + '=' + encodeURIComponent(value) + ';' + expires + ';Path=/;SameSite=Lax' + secure;
+  };
+
+  const escapeSelector = (value) => {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+      return window.CSS.escape(value);
+    }
+
+    return String(value).replace(/([ #;?%&,.+*~':"!^$[\]()=>|/@])/g, '\\$1');
   };
 
   const wildcardMatch = (pattern, value) => {
@@ -120,6 +143,60 @@
     });
   };
 
+  const persistTrackingValues = () => {
+    Object.entries(TRACKING_SOURCES).forEach(([key, names]) => {
+      const cookieName = TRACKING_COOKIES[key];
+      if (!cookieName || getCookie(cookieName)) {
+        return;
+      }
+
+      const value = getFirstParamValue(names);
+      if (value) {
+        setCookie(cookieName, value, CFG.cookieDays || 30);
+      }
+    });
+  };
+
+  const getTrackingValue = (key) => {
+    const cookieName = TRACKING_COOKIES[key];
+    const cookieValue = cookieName ? getCookie(cookieName) : null;
+    if (cookieValue) {
+      return cookieValue;
+    }
+
+    return getFirstParamValue(TRACKING_SOURCES[key]);
+  };
+
+  const setFieldValue = (field, value) => {
+    if (!field || typeof value !== 'string' || value === '') {
+      return;
+    }
+
+    if (field.value === value) {
+      return;
+    }
+
+    field.value = value;
+    field.setAttribute('value', value);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  const populateTrackingFields = () => {
+    Object.entries(TRACKING_TARGETS).forEach(([key, names]) => {
+      const value = getTrackingValue(key);
+      if (!value) {
+        return;
+      }
+
+      (Array.isArray(names) ? names : []).forEach((name) => {
+        document
+          .querySelectorAll('[name="' + escapeSelector(name) + '"]')
+          .forEach((field) => setFieldValue(field, value));
+      });
+    });
+  };
+
   const getChosenNumber = () => {
     const match = resolveRule();
 
@@ -139,7 +216,9 @@
   };
 
   const boot = () => {
+    persistTrackingValues();
     applyNumber(getChosenNumber());
+    populateTrackingFields();
   };
 
   const scheduleRechecks = () => {
