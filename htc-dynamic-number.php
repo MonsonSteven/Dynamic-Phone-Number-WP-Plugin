@@ -2,7 +2,7 @@
 /**
  * Plugin Name: HTC Dynamic Number (Lite)
  * Description: Dynamic phone number swapping with an admin settings page. Shortcode: [htc_phone]
- * Version: 1.4.4
+ * Version: 1.4.5
  * Author: Steven Monson - Hometown Contractors - Internal Use Only
  */
 
@@ -1132,7 +1132,7 @@ function htc_dn_enqueue_frontend(): void {
     'htc-dn-lite',
     HTC_DN_URL . 'assets/js/htc-dn-frontend.js',
     [],
-    '1.4.4',
+    '1.4.5',
     true
   );
 
