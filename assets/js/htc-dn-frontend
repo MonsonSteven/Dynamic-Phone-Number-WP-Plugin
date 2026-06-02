@@ -1,6 +1,6 @@
 /**
  * HTC Dynamic Number Frontend Logic
- * Version: 1.4.4
+ * Version: 1.4.5
  */
 (() => {
   const CFG = window.HTC_DN_LITE || {};
@@ -60,6 +60,18 @@
     const expires = 'expires=' + d.toUTCString();
     const secure = window.location.protocol === 'https:' ? ';Secure' : '';
     document.cookie = name + '=' + encodeURIComponent(value) + ';' + expires + ';Path=/;SameSite=Lax' + secure;
+  };
+
+  const normalizeText = (value) => (value || '').toString().replace(/\s+/g, ' ').trim();
+
+  const normalizeTel = (value) => {
+    const raw = (value || '').toString().trim().replace(/^tel:/i, '');
+
+    try {
+      return decodeURIComponent(raw).replace(/[^\d+]/g, '');
+    } catch (e) {
+      return raw.replace(/[^\d+]/g, '');
+    }
   };
 
   const escapeSelector = (value) => {
@@ -129,18 +141,96 @@
     return null;
   };
 
+  const isExternallyChanged = (node) => {
+    if (node.getAttribute('data-htc-dn-applied') !== '1') {
+      return false;
+    }
+
+    const lastDisplay = node.getAttribute('data-htc-dn-display') || '';
+    const lastTel = node.getAttribute('data-htc-dn-tel') || '';
+    const currentDisplay = normalizeText(node.textContent);
+
+    if (lastDisplay && currentDisplay && currentDisplay !== normalizeText(lastDisplay)) {
+      return true;
+    }
+
+    if (node.tagName.toLowerCase() === 'a' && lastTel) {
+      const currentTel = normalizeTel(node.getAttribute('href') || '');
+      if (currentTel && currentTel !== normalizeTel(lastTel)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const emitDniEvent = (name, detail) => {
+    try {
+      window.dispatchEvent(new CustomEvent(name, { detail }));
+    } catch (e) {
+      // Older browsers may not support CustomEvent construction.
+    }
+
+    if (Array.isArray(window.dataLayer)) {
+      window.dataLayer.push(Object.assign({ event: name.replace(/-/g, '_') }, detail));
+    }
+  };
+
   const applyNumber = (num) => {
     const nodes = document.querySelectorAll('[data-htc-dn-phone]');
+    const detail = {
+      display: num.display || '',
+      tel: num.tel || '',
+      ruleId: num.ruleId || null,
+      yielded: 0,
+      applied: 0
+    };
 
     nodes.forEach((node) => {
+      if (isExternallyChanged(node)) {
+        node.setAttribute('data-htc-dn-yielded', '1');
+        detail.yielded += 1;
+        return;
+      }
+
+      const desiredDisplay = normalizeText(num.display);
+      const desiredTel = normalizeTel(num.tel);
+      const currentDisplay = normalizeText(node.textContent);
+      const currentTel = node.tagName.toLowerCase() === 'a' ? normalizeTel(node.getAttribute('href') || '') : '';
+      const lastDisplay = normalizeText(node.getAttribute('data-htc-dn-display') || '');
+      const lastTel = normalizeTel(node.getAttribute('data-htc-dn-tel') || '');
+      const isApplied = node.getAttribute('data-htc-dn-applied') === '1';
+      const displayMatches = !desiredDisplay || currentDisplay === desiredDisplay;
+      const telMatches = !desiredTel || node.tagName.toLowerCase() !== 'a' || currentTel === desiredTel;
+      const storedDisplayMatches = !desiredDisplay || lastDisplay === desiredDisplay;
+      const storedTelMatches = !desiredTel || node.tagName.toLowerCase() !== 'a' || lastTel === desiredTel;
+
+      if (isApplied && displayMatches && telMatches && storedDisplayMatches && storedTelMatches) {
+        return;
+      }
+
       if (num.display) {
         node.textContent = num.display;
+        node.setAttribute('data-htc-dn-display', normalizeText(num.display));
       }
 
       if (node.tagName.toLowerCase() === 'a' && num.tel) {
         node.setAttribute('href', 'tel:' + num.tel);
+        node.setAttribute('data-htc-dn-tel', num.tel);
       }
+
+      node.setAttribute('data-htc-dn-applied', '1');
+      node.removeAttribute('data-htc-dn-yielded');
+      detail.applied += 1;
     });
+
+    if (detail.applied > 0) {
+      emitDniEvent('htc-dn-applied', detail);
+    }
+
+    if (detail.yielded > 0) {
+      emitDniEvent('htc-dn-yielded', detail);
+    }
   };
 
   const persistTrackingValues = () => {
@@ -202,17 +292,17 @@
 
     if (match && match.id) {
       setCookie(CFG.cookieName, match.id, CFG.cookieDays || 30);
-      return { display: match.display, tel: match.tel };
+      return { display: match.display, tel: match.tel, ruleId: match.id };
     }
 
     const rid = getCookie(CFG.cookieName);
     const chosen = rid ? RULES.find((r) => r.id === rid) : null;
 
     if (chosen) {
-      return { display: chosen.display, tel: chosen.tel };
+      return { display: chosen.display, tel: chosen.tel, ruleId: chosen.id };
     }
 
-    return CFG.default || {};
+    return Object.assign({ ruleId: null }, CFG.default || {});
   };
 
   const boot = () => {
@@ -222,7 +312,7 @@
   };
 
   const scheduleRechecks = () => {
-    [150, 500, 1500].forEach((delay) => {
+    [250, 1000].forEach((delay) => {
       window.setTimeout(boot, delay);
     });
   };
