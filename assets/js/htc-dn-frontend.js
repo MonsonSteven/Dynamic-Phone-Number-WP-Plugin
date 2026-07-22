@@ -1,0 +1,329 @@
+/**
+ * HTC Dynamic Number Frontend Logic
+ * Version: 1.4.6
+ */
+(() => {
+  const CFG = window.HTC_DN_LITE || {};
+  const RULES = Array.isArray(CFG.rules) ? CFG.rules : [];
+  const TRACKING = CFG.tracking || {};
+  const TRACKING_SOURCES = TRACKING.sources || {};
+  const TRACKING_TARGETS = TRACKING.targets || {};
+  const TRACKING_COOKIES = TRACKING.cookies || {};
+  const TYPE_PARAM_MAP = {
+    UTM_SOURCE: 'utm_source',
+    UTM_MEDIUM: 'utm_medium',
+    UTM_CAMPAIGN: 'utm_campaign',
+    UTM_TERM: 'utm_term',
+    UTM_CONTENT: 'utm_content',
+    CAMPAIGNID: 'campaignid',
+    KEYWORD: 'keyword',
+    ADPOSITION: 'adpos',
+    ADPOS: 'adpos',
+    PROMO: 'promo',
+    REGION: 'region',
+    GCLID: 'gclid',
+    FBCLID: 'fbclid',
+    MSCLKID: 'msclkid',
+    TTCLID: 'ttclid',
+    GBRAID: 'gbraid',
+    WBRAID: 'wbraid',
+    OPPREF: 'oppref'
+  };
+  const CLICK_ID_TYPES = new Set(['CLICKID', 'GCLID', 'FBCLID', 'MSCLKID', 'TTCLID', 'GBRAID', 'WBRAID', 'OPPREF']);
+
+  const getParam = (name) => {
+    try {
+      return new URL(window.location.href).searchParams.get(name);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const getFirstParamValue = (names) => {
+    for (const name of Array.isArray(names) ? names : []) {
+      const value = getParam(name);
+      if (value) {
+        return value;
+      }
+    }
+
+    return null;
+  };
+
+  const getCookie = (name) => {
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? decodeURIComponent(m.pop()) : null;
+  };
+
+  const setCookie = (name, value, days) => {
+    const d = new Date();
+    d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+    const expires = 'expires=' + d.toUTCString();
+    const secure = window.location.protocol === 'https:' ? ';Secure' : '';
+    document.cookie = name + '=' + encodeURIComponent(value) + ';' + expires + ';Path=/;SameSite=Lax' + secure;
+  };
+
+  const normalizeText = (value) => (value || '').toString().replace(/\s+/g, ' ').trim();
+
+  const normalizeTel = (value) => {
+    const raw = (value || '').toString().trim().replace(/^tel:/i, '');
+
+    try {
+      return decodeURIComponent(raw).replace(/[^\d+]/g, '');
+    } catch (e) {
+      return raw.replace(/[^\d+]/g, '');
+    }
+  };
+
+  const escapeSelector = (value) => {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+      return window.CSS.escape(value);
+    }
+
+    return String(value).replace(/([ #;?%&,.+*~':"!^$[\]()=>|/@])/g, '\\$1');
+  };
+
+  const wildcardMatch = (pattern, value) => {
+    const p = (pattern ?? '*').toString().trim();
+    const v = (value ?? '').toString();
+
+    const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$', 'i');
+
+    return re.test(v);
+  };
+
+  const refHost = () => {
+    try {
+      if (!document.referrer) return '';
+      return new URL(document.referrer).host || '';
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const resolveParamName = (rule, type) => {
+    const namedType = TYPE_PARAM_MAP[type];
+    if (namedType) return namedType;
+
+    const explicit = (rule.param || '').toString().trim();
+    return explicit || null;
+  };
+
+  const resolveRule = () => {
+    const host = refHost();
+
+    for (const r of RULES) {
+      if (!r || !r.id) continue;
+
+      const type = (r.type || 'PARAM').toUpperCase();
+      const paramName = resolveParamName(r, type);
+
+      if (CLICK_ID_TYPES.has(type)) {
+        if (!paramName) continue;
+        const v = getParam(paramName);
+        if (v) return r;
+      }
+
+      if (type === 'PARAM' || TYPE_PARAM_MAP[type]) {
+        if (!paramName) continue;
+        const v = getParam(paramName);
+        if (v && wildcardMatch(r.pattern, v)) return r;
+      }
+
+      if (type === 'REFERRER') {
+        const target = (r.param || '').toString().trim();
+        if (!host) continue;
+        if (target && !host.toLowerCase().includes(target.toLowerCase())) continue;
+        if (wildcardMatch(r.pattern || '*', host)) return r;
+      }
+    }
+
+    return null;
+  };
+
+  const isExternallyChanged = (node) => {
+    if (node.getAttribute('data-htc-dn-applied') !== '1') {
+      return false;
+    }
+
+    const lastDisplay = node.getAttribute('data-htc-dn-display') || '';
+    const lastTel = node.getAttribute('data-htc-dn-tel') || '';
+    const currentDisplay = normalizeText(node.textContent);
+
+    if (lastDisplay && currentDisplay && currentDisplay !== normalizeText(lastDisplay)) {
+      return true;
+    }
+
+    if (node.tagName.toLowerCase() === 'a' && lastTel) {
+      const currentTel = normalizeTel(node.getAttribute('href') || '');
+      if (currentTel && currentTel !== normalizeTel(lastTel)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const emitDniEvent = (name, detail) => {
+    try {
+      window.dispatchEvent(new CustomEvent(name, { detail }));
+    } catch (e) {
+      // Older browsers may not support CustomEvent construction.
+    }
+
+    if (Array.isArray(window.dataLayer)) {
+      window.dataLayer.push(Object.assign({ event: name.replace(/-/g, '_') }, detail));
+    }
+  };
+
+  const applyNumber = (num) => {
+    const nodes = document.querySelectorAll('[data-htc-dn-phone]');
+    const detail = {
+      display: num.display || '',
+      tel: num.tel || '',
+      ruleId: num.ruleId || null,
+      yielded: 0,
+      applied: 0
+    };
+
+    nodes.forEach((node) => {
+      if (isExternallyChanged(node)) {
+        node.setAttribute('data-htc-dn-yielded', '1');
+        detail.yielded += 1;
+        return;
+      }
+
+      const desiredDisplay = normalizeText(num.display);
+      const desiredTel = normalizeTel(num.tel);
+      const currentDisplay = normalizeText(node.textContent);
+      const currentTel = node.tagName.toLowerCase() === 'a' ? normalizeTel(node.getAttribute('href') || '') : '';
+      const lastDisplay = normalizeText(node.getAttribute('data-htc-dn-display') || '');
+      const lastTel = normalizeTel(node.getAttribute('data-htc-dn-tel') || '');
+      const isApplied = node.getAttribute('data-htc-dn-applied') === '1';
+      const displayMatches = !desiredDisplay || currentDisplay === desiredDisplay;
+      const telMatches = !desiredTel || node.tagName.toLowerCase() !== 'a' || currentTel === desiredTel;
+      const storedDisplayMatches = !desiredDisplay || lastDisplay === desiredDisplay;
+      const storedTelMatches = !desiredTel || node.tagName.toLowerCase() !== 'a' || lastTel === desiredTel;
+
+      if (isApplied && displayMatches && telMatches && storedDisplayMatches && storedTelMatches) {
+        return;
+      }
+
+      if (num.display) {
+        node.textContent = num.display;
+        node.setAttribute('data-htc-dn-display', normalizeText(num.display));
+      }
+
+      if (node.tagName.toLowerCase() === 'a' && num.tel) {
+        node.setAttribute('href', 'tel:' + num.tel);
+        node.setAttribute('data-htc-dn-tel', num.tel);
+      }
+
+      node.setAttribute('data-htc-dn-applied', '1');
+      node.removeAttribute('data-htc-dn-yielded');
+      detail.applied += 1;
+    });
+
+    if (detail.applied > 0) {
+      emitDniEvent('htc-dn-applied', detail);
+    }
+
+    if (detail.yielded > 0) {
+      emitDniEvent('htc-dn-yielded', detail);
+    }
+  };
+
+  const persistTrackingValues = () => {
+    Object.entries(TRACKING_SOURCES).forEach(([key, names]) => {
+      const cookieName = TRACKING_COOKIES[key];
+      if (!cookieName || getCookie(cookieName)) {
+        return;
+      }
+
+      const value = getFirstParamValue(names);
+      if (value) {
+        setCookie(cookieName, value, CFG.cookieDays || 30);
+      }
+    });
+  };
+
+  const getTrackingValue = (key) => {
+    const cookieName = TRACKING_COOKIES[key];
+    const cookieValue = cookieName ? getCookie(cookieName) : null;
+    if (cookieValue) {
+      return cookieValue;
+    }
+
+    return getFirstParamValue(TRACKING_SOURCES[key]);
+  };
+
+  const setFieldValue = (field, value) => {
+    if (!field || typeof value !== 'string' || value === '') {
+      return;
+    }
+
+    if (field.value === value) {
+      return;
+    }
+
+    field.value = value;
+    field.setAttribute('value', value);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  const populateTrackingFields = () => {
+    Object.entries(TRACKING_TARGETS).forEach(([key, names]) => {
+      const value = getTrackingValue(key);
+      if (!value) {
+        return;
+      }
+
+      (Array.isArray(names) ? names : []).forEach((name) => {
+        document
+          .querySelectorAll('[name="' + escapeSelector(name) + '"]')
+          .forEach((field) => setFieldValue(field, value));
+      });
+    });
+  };
+
+  const getChosenNumber = () => {
+    const match = resolveRule();
+
+    if (match && match.id) {
+      setCookie(CFG.cookieName, match.id, CFG.cookieDays || 30);
+      return { display: match.display, tel: match.tel, ruleId: match.id };
+    }
+
+    const rid = getCookie(CFG.cookieName);
+    const chosen = rid ? RULES.find((r) => r.id === rid) : null;
+
+    if (chosen) {
+      return { display: chosen.display, tel: chosen.tel, ruleId: chosen.id };
+    }
+
+    return Object.assign({ ruleId: null }, CFG.default || {});
+  };
+
+  const boot = () => {
+    persistTrackingValues();
+    applyNumber(getChosenNumber());
+    populateTrackingFields();
+  };
+
+  const scheduleRechecks = () => {
+    [250, 1000].forEach((delay) => {
+      window.setTimeout(boot, delay);
+    });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
+  window.addEventListener('load', boot);
+  scheduleRechecks();
+})();
