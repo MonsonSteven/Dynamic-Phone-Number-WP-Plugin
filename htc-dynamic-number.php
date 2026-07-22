@@ -2,7 +2,7 @@
 /**
  * Plugin Name: HTC Dynamic Number (Lite)
  * Description: Dynamic phone number swapping with an admin settings page. Shortcode: [htc_phone]
- * Version: 1.4.5
+ * Version: 1.4.6
  * Author: Steven Monson - Hometown Contractors - Internal Use Only
  */
 
@@ -45,6 +45,7 @@ function htc_dn_rule_type_param_map(): array {
     'TTCLID'       => 'ttclid',
     'GBRAID'       => 'gbraid',
     'WBRAID'       => 'wbraid',
+    'OPPREF'       => 'oppref',
   ];
 }
 
@@ -58,6 +59,7 @@ function htc_dn_tracking_param_sources(): array {
     'ttclid'     => ['ttclid'],
     'gbraid'     => ['gbraid'],
     'wbraid'     => ['wbraid'],
+    'oppref'     => ['oppref'],
   ];
 }
 
@@ -71,6 +73,7 @@ function htc_dn_tracking_field_targets(): array {
     'ttclid'     => ['ttclid'],
     'gbraid'     => ['gbraid'],
     'wbraid'     => ['wbraid'],
+    'oppref'     => ['oppref'],
   ];
 }
 
@@ -174,7 +177,7 @@ function htc_dn_normalize_rule(array $rule): array {
     $rule['param'] = $map[$type];
   }
 
-  if (in_array($type, ['GCLID', 'FBCLID', 'MSCLKID', 'TTCLID', 'GBRAID', 'WBRAID'], true)) {
+  if (in_array($type, ['GCLID', 'FBCLID', 'MSCLKID', 'TTCLID', 'GBRAID', 'WBRAID', 'OPPREF'], true)) {
     $rule['type'] = 'CLICKID';
   } else {
     $rule['type'] = $type;
@@ -694,7 +697,7 @@ function htc_dn_render_settings_page(): void {
     "tel": "+12515554001"
   }
 ]</pre>
-    <p><strong>Type values:</strong> <code>PARAM</code> (match any named URL parameter), <code>CLICKID</code> (param presence), <code>REFERRER</code> (match referrer host), plus shortcut types like <code>UTM_CAMPAIGN</code>, <code>CAMPAIGNID</code>, <code>KEYWORD</code>, <code>ADPOSITION</code>, <code>PROMO</code>, <code>REGION</code>, <code>GCLID</code>, <code>FBCLID</code>, and <code>MSCLKID</code>.</p>
+    <p><strong>Type values:</strong> <code>PARAM</code> (match any named URL parameter), <code>CLICKID</code> (param presence), <code>REFERRER</code> (match referrer host), plus shortcut types like <code>UTM_CAMPAIGN</code>, <code>CAMPAIGNID</code>, <code>KEYWORD</code>, <code>ADPOSITION</code>, <code>PROMO</code>, <code>REGION</code>, <code>GCLID</code>, <code>GBRAID</code>, <code>WBRAID</code>, <code>OPPREF</code>, <code>FBCLID</code>, and <code>MSCLKID</code>.</p>
     <p>From your spreadsheet template, links like <code>{lpurl}?campaignid={campaignid}&amp;keyword={keyword}&amp;adpos={adposition}&amp;promo={_promo}&amp;region={_region}</code> can now be matched without manually filling in <code>param</code> each time.</p>
   </div>
   <script>
@@ -1132,7 +1135,7 @@ function htc_dn_enqueue_frontend(): void {
     'htc-dn-lite',
     HTC_DN_URL . 'assets/js/htc-dn-frontend.js',
     [],
-    '1.4.5',
+    '1.4.6',
     true
   );
 

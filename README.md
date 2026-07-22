@@ -1,6 +1,6 @@
 # Dynamic Number Swap
 
-Version: 1.4.5  (the rad edition)
+Version: 1.4.6  (the tengai edition)
 Author: Steven Monson - Hometown Contractors
 
 HTC Dynamic Number is a WordPress plugin for dynamic phone number insertion (DNI). It swaps the visible phone number and `tel:` link on marked phone elements based on URL parameters, click IDs, referrer matching, saved visitor cookies, and configured rule priority.
@@ -13,7 +13,7 @@ The plugin is intended for internal use on Hometown Contractors sites, especiall
 - Evaluates enabled rules by ascending `priority`; the lowest priority number wins first.
 - Supports wildcard pattern matching with `*`.
 - Persists the selected rule in a visitor cookie so the phone number remains consistent during the session window.
-- Captures attribution values such as `gclid`, `gbraid`, `wbraid`, `fbclid`, `msclkid`, `ttclid`, `utm_promo`, and `utm_region`.
+- Captures attribution values such as `gclid`, `gbraid`, `wbraid`, `oppref`, `fbclid`, `msclkid`, `ttclid`, `utm_promo`, and `utm_region`.
 - Populates matching hidden form fields when those fields exist on the page.
 - Adds Fluent Forms submission support for stored attribution values.
 - Includes admin tools for rule backup, bundled rule import, visual rule management, and admin cookie clearing.
@@ -123,6 +123,7 @@ Shortcut rule types map to known URL parameters:
 - `GCLID` -> `gclid`
 - `GBRAID` -> `gbraid`
 - `WBRAID` -> `wbraid`
+- `OPPREF` -> `oppref`
 - `FBCLID` -> `fbclid`
 - `MSCLKID` -> `msclkid`
 - `TTCLID` -> `ttclid`
@@ -154,6 +155,7 @@ Examples:
 - `htc_dn_attr_gclid`
 - `htc_dn_attr_gbraid`
 - `htc_dn_attr_wbraid`
+- `htc_dn_attr_oppref`
 - `htc_dn_attr_fbclid`
 - `htc_dn_attr_msclkid`
 
@@ -170,6 +172,7 @@ Supported field names include:
 - `gclid`
 - `gbraid`
 - `wbraid`
+- `oppref`
 - `fbclid`
 - `msclkid`
 - `ttclid`
@@ -240,6 +243,26 @@ Recommended workflow:
 3. Use Import Bundled Rules only when intentionally replacing the live rules with the bundled spreadsheet-generated rules.
 4. Save settings after rule edits.
 5. Test with a clean cookie state.
+
+## OpenAI Ads Attribution
+
+Version 1.4.6 adds support for OpenAI Ads click-reference capture via `oppref`.
+
+When a landing page URL includes `oppref`, the plugin stores the value in the same first-party attribution system used for other click IDs and can populate matching form fields named:
+
+```text
+oppref
+```
+
+This is intended to support attribution handoff through forms and downstream conversion workflows. The plugin treats `oppref` as an attribution value; it does not load the OpenAI Pixel, send conversion events, or modify OpenAI Ads scripts.
+
+## Version 1.4.6 Notes
+
+- Added support for OpenAI Ads `oppref` capture.
+- Added `oppref` persistence via the plugin's `htc_dn_attr_oppref` cookie.
+- Added `oppref` form-field population for the frontend and Fluent Forms handshake paths.
+- Added `OPPREF` as a click-ID style rule type.
+- No changes were made to GTM yielding behavior, existing tracking keys, or shortcode output.
 
 ## Version 1.4.5 Notes
 

@@ -1,5 +1,17 @@
 # HTC Dynamic Number Changelog
 
+
+## 1.4.6 - 2026-07-21
+
+### Added
+- Added support for OpenAI Ads click reference capture via `oppref`.
+- Added `oppref` to the same first-party attribution persistence and form-field population path used by other click IDs.
+- Added `OPPREF` as a click-ID style rule shortcut for optional rule matching.
+
+### Notes
+- `oppref` is treated as an attribution/click-reference value, similar in plugin behavior to `fbclid`, `gclid`, `gbraid`, and `wbraid`.
+- This release does not change DNI phone-number yielding behavior, GTM events, existing cookie names, or Fluent Forms handling logic.
+
 ## 1.4.5 - 2026-05-20
 
 ### Changed
